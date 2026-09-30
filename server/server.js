@@ -80,23 +80,15 @@ app.get('/health', (req, res) => {
 const publicDir = path.join(__dirname, 'public');
 const parentDir = path.join(__dirname, '..');
 
-if (fs.existsSync(publicDir)) {
+if (fs.existsSync(path.join(publicDir, 'index.html'))) {
   app.use(express.static(publicDir));
-} else if (fs.existsSync(parentDir)) {
+} else if (fs.existsSync(path.join(parentDir, 'index.html')) && fs.existsSync(path.join(parentDir, 'styles.css'))) {
   app.use(express.static(parentDir));
 }
 
 app.get('/', (req, res) => {
-  const publicIndex = path.join(publicDir, 'index.html');
-  const parentIndex = path.join(parentDir, 'index.html');
-
-  if (fs.existsSync(publicIndex)) {
-    return res.sendFile(publicIndex);
-  }
-  if (fs.existsSync(parentIndex) && fs.existsSync(path.join(parentDir, 'styles.css'))) {
-    return res.sendFile(parentIndex);
-  }
-
+  // If static index.html exists, express.static handled it.
+  // Otherwise return API service status JSON
   res.json({
     service: 'AirWard Federation API',
     status: 'operational',
