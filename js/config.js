@@ -18,15 +18,9 @@
   'use strict';
 
   // API Backend URL for Cloud Run / Local Node.js server
-  // Automatically detects origin when deployed together on Cloud Run / HTTPS,
-  // or falls back to http://localhost:8080 for local dev
-  const isLocalDevPort = typeof window !== 'undefined' && window.location &&
-    (window.location.port === '8000' || window.location.port === '3000' || window.location.port === '5500');
-
+  // Can be overridden at runtime via localStorage or query parameter
   const DEFAULT_API_URL = (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('AIRWARD_API_URL'))
-    || (typeof window !== 'undefined' && window.location && window.location.origin.startsWith('http') && !isLocalDevPort
-      ? window.location.origin
-      : 'http://localhost:8080');
+    || 'http://localhost:8080';
 
   /**
    * 10 Sentinel Nodes across 7 BRICS Nations
