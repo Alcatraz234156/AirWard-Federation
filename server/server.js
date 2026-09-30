@@ -76,7 +76,19 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Serve static frontend if present (supports single-container Cloud Run deployment)
+const publicDir = path.join(__dirname, 'public');
+const parentDir = path.join(__dirname, '..');
+
+if (fs.existsSync(path.join(publicDir, 'index.html'))) {
+  app.use(express.static(publicDir));
+} else if (fs.existsSync(path.join(parentDir, 'index.html')) && fs.existsSync(path.join(parentDir, 'styles.css'))) {
+  app.use(express.static(parentDir));
+}
+
 app.get('/', (req, res) => {
+  // If static index.html exists, express.static handled it.
+  // Otherwise return API service status JSON
   res.json({
     service: 'AirWard Federation API',
     status: 'operational',
