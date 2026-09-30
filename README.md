@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌍 AirWard Federation
+<img src="assets/logo.png" alt="AirWard Federation" width="420">
 
 **Turning every citizen into an air-quality sensor, and every alert into faster action.**
 
