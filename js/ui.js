@@ -1,4 +1,14 @@
-
+/**
+ * AirWard Federation - User Interface & Visualizations
+ * Implements:
+ * 1. Live BRICS Corridor Map (SVG with animated node markers, AQI color coding, and corridor lines)
+ * 2. 48-Hour Forecast Chart (SVG with raw model vs federated-corrected curve, threshold lines)
+ * 3. Hotspot & Forecast Spike Alert Cards
+ * 4. Dual Gemini Advisory Modal (Resident plain-language + Authority regulatory action note)
+ * 5. Common Alerting Protocol (CAP v1.2) JSON viewer & downloader
+ * 6. Federated Learning Station (Local/Shared/Effective weights table and payload exporter)
+ * 7. Interactive Toast Notifications & Status Indicators
+ */
 
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -12,21 +22,208 @@
   // State handles
   let currentSelectedNodeId = 'delhi';
   let activeAlerts = [];
-  let mapSvgElement = null;
+  let leafletMap = null;
+  let satelliteLayerGroup = null;
+  let darkTilesLayer = null;
+  let leafletLayerGroup = null;
 
   /**
    * Initialize and render the BRICS Corridor Map
-   * Equirectangular projection covering latitude -40° to +65°, longitude -80° to +135°
+   * Displays REAL photographic satellite imagery of planet Earth (NASA / Esri World Imagery)
+   * with geographic boundary labels, atmospheric flow arcs, and glowing AQI nodes.
    */
-  function renderCorridorMap(containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
+  function renderCorridorMap(containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect, selectedNodeId) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // Dimensions
+    if (selectedNodeId) {
+      currentSelectedNodeId = selectedNodeId;
+    }
+
+    if (typeof window !== 'undefined' && window.L) {
+      renderRealSatelliteMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+      return;
+    }
+
+    // If Leaflet is still downloading, retry every 80ms for up to 3 seconds
+    if (!window._leafletWaitTimer) {
+      let attempts = 0;
+      window._leafletWaitTimer = setInterval(() => {
+        attempts++;
+        if (typeof window !== 'undefined' && window.L) {
+          clearInterval(window._leafletWaitTimer);
+          window._leafletWaitTimer = null;
+          renderRealSatelliteMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+        } else if (attempts > 35) {
+          clearInterval(window._leafletWaitTimer);
+          window._leafletWaitTimer = null;
+          renderSvgMap(container, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+        }
+      }, 80);
+    }
+  }
+
+  function renderRealSatelliteMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
+    // Guarantee non-zero height on container
+    if (!container.style.height || container.clientHeight === 0) {
+      container.style.height = '520px';
+      container.style.minHeight = '520px';
+      container.style.display = 'block';
+    }
+
+    if (!leafletMap) {
+      if (container._leaflet_id) {
+        container._leaflet_id = null;
+      }
+      container.innerHTML = '';
+
+      leafletMap = window.L.map(container, {
+        center: [22, 42],
+        zoom: 2.2,
+        minZoom: 1.5,
+        maxZoom: 18,
+        zoomSnap: 0.2,
+        zoomDelta: 0.5,
+        zoomControl: false,
+        attributionControl: false,
+        worldCopyJump: true
+      });
+
+      window.L.control.zoom({ position: 'bottomright' }).addTo(leafletMap);
+
+      // Real Satellite Imagery Tiles (photographic Earth from space)
+      const satImagery = window.L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        { maxZoom: 18 }
+      );
+
+      // Country Borders & Regional Labels Overlay
+      const satLabels = window.L.tileLayer(
+        'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+        { maxZoom: 18, opacity: 0.85 }
+      );
+
+      satelliteLayerGroup = window.L.layerGroup([satImagery, satLabels]).addTo(leafletMap);
+
+      // Alternative Dark Radar Vector Map (CartoDB Dark Matter)
+      darkTilesLayer = window.L.tileLayer(
+        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        { subdomains: 'abcd', maxZoom: 19 }
+      );
+
+      // Add map style switcher on top-right of map
+      const baseMaps = {
+        '🛰️ Real Satellite Imagery': satelliteLayerGroup,
+        '🌙 Dark Radar Vector': darkTilesLayer
+      };
+      window.L.control.layers(baseMaps, null, { position: 'topright' }).addTo(leafletMap);
+
+      leafletLayerGroup = window.L.layerGroup().addTo(leafletMap);
+
+      // Add legend badge
+      const legend = document.createElement('div');
+      legend.className = 'map-corridor-legend';
+      legend.innerHTML = '<span>🛰️ <strong>Photographic Earth Satellite</strong> · Live BRICS Corridor</span>';
+      container.appendChild(legend);
+
+      window.addEventListener('resize', () => {
+        if (leafletMap) leafletMap.invalidateSize();
+      });
+    } else {
+      leafletLayerGroup.clearLayers();
+    }
+
+    const corridors = [
+      ['saopaulo', 'johannesburg'],
+      ['johannesburg', 'cairo'],
+      ['cairo', 'tehran'],
+      ['tehran', 'dubai'],
+      ['dubai', 'mumbai'],
+      ['mumbai', 'delhi'],
+      ['delhi', 'beijing'],
+      ['beijing', 'shanghai'],
+      ['beijing', 'moscow'],
+      ['moscow', 'tehran']
+    ];
+
+    const nodeMap = new Map();
+    nodes.forEach(n => nodeMap.set(n.id, n));
+
+    corridors.forEach(([fromId, toId]) => {
+      const fromNode = nodeMap.get(fromId);
+      const toNode = nodeMap.get(toId);
+      if (fromNode && toNode) {
+        window.L.polyline([
+          [fromNode.coords[0], fromNode.coords[1]],
+          [toNode.coords[0], toNode.coords[1]]
+        ], {
+          color: '#38bdf8',
+          weight: 2,
+          opacity: 0.65,
+          dashArray: '6, 8'
+        }).addTo(leafletLayerGroup);
+      }
+    });
+
+    nodes.forEach(node => {
+      const data = airQualityMap.get(node.id);
+      const aqi = data ? data.current.aqi : 75;
+      const pm25 = data ? data.current.pm25 : node.defaultPM25;
+      const isSelected = node.id === currentSelectedNodeId;
+
+      const AirWardModel = window.AirWardModel;
+      const aqiBand = AirWardModel ? AirWardModel.getAQIBand(aqi) : { color: '#f59e0b', label: 'Moderate' };
+      const nodeColor = aqiBand.color;
+      const hasConfirmedHotspot = hotspotsMap && hotspotsMap.some(h => h.cityId === node.id && h.status === 'CONFIRMED');
+
+      const markerHtml = `
+        <div class="custom-node-marker ${isSelected ? 'is-selected' : ''}" data-city="${node.id}">
+          <div class="node-pulse-point" style="color: ${nodeColor};">
+            <div class="node-core" style="background: ${nodeColor};"></div>
+            <div class="node-ring"></div>
+            ${hasConfirmedHotspot ? '<div class="node-ring-hazard"></div>' : ''}
+          </div>
+          <div class="node-tag-pill ${isSelected ? 'node-tag-active' : ''}">
+            <span class="node-flag">${node.flag}</span>
+            <span class="node-name">${node.name}</span>
+            <span class="node-aqi" style="color:${nodeColor}; font-weight: 700;">${aqi}</span>
+          </div>
+        </div>
+      `;
+
+      const icon = window.L.divIcon({
+        className: 'leaflet-custom-div-icon',
+        html: markerHtml,
+        iconSize: [120, 36],
+        iconAnchor: [12, 12]
+      });
+
+      const m = window.L.marker([node.coords[0], node.coords[1]], { icon }).addTo(leafletLayerGroup);
+
+      m.bindTooltip(`
+        <div style="font-size:0.75rem; line-height:1.4;">
+          <strong>${node.flag} ${node.name}</strong> <span style="opacity:0.7;">(${node.country})</span><br/>
+          <span style="color:${nodeColor}; font-weight:700;">AQI ${aqi} · ${aqiBand.label}</span><br/>
+          <span style="opacity:0.8;">PM2.5: ${pm25.toFixed(1)} µg/m³</span>
+        </div>
+      `, { direction: 'top', offset: [0, -10] });
+
+      m.on('click', () => {
+        currentSelectedNodeId = node.id;
+        if (onNodeSelect) onNodeSelect(node.id);
+        renderRealSatelliteMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+        leafletMap.panTo([node.coords[0], node.coords[1]], { animate: true, duration: 0.6 });
+      });
+    });
+
+    setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 80);
+    setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 300);
+    setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 700);
+  }
+
+  function renderSvgMap(container, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
     const width = 1000;
     const height = 520;
-
-    // Bounding box for BRICS nodes
     const minLon = -75;
     const maxLon = 130;
     const minLat = -35;
@@ -37,11 +234,9 @@
     }
 
     function latToY(lat) {
-      // Invert Y for SVG coordinates
       return height - (((lat - minLat) / (maxLat - minLat)) * (height - 100) + 50);
     }
 
-    // Generate corridor connecting lines between BRICS economic partners
     const corridors = [
       ['saopaulo', 'johannesburg'],
       ['johannesburg', 'cairo'],
@@ -70,21 +265,15 @@
 
         <!-- World map continent stylized land masses -->
         <g class="map-continents" opacity="0.10">
-          <!-- South America -->
           <path d="M 120,310 C 135,270 170,290 190,320 C 210,360 200,420 180,450 C 160,470 145,430 135,390 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
-          <!-- Africa -->
           <path d="M 450,220 C 510,210 560,250 560,300 C 560,360 520,440 480,460 C 450,440 440,360 430,300 C 420,250 440,230 450,220 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
-          <!-- Eurasia / Asia -->
           <path d="M 460,90 C 540,70 660,75 800,85 C 920,95 950,160 920,240 C 860,260 760,290 690,260 C 650,290 600,260 560,220 C 510,180 480,140 460,90 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
-          <!-- India sub-peninsula -->
           <path d="M 680,220 C 720,230 750,260 740,310 C 730,340 705,330 695,290 C 685,260 675,230 680,220 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
         </g>
 
-        <!-- Corridor Trade & Atmospheric Flow Paths -->
         <g class="corridor-lines" opacity="0.45">
     `;
 
-    // Map of nodes for quick coordinate lookup
     const nodeMap = new Map();
     nodes.forEach(n => nodeMap.set(n.id, n));
 
@@ -96,7 +285,6 @@
         const y1 = latToY(fromNode.coords[0]);
         const x2 = lonToX(toNode.coords[1]);
         const y2 = latToY(toNode.coords[0]);
-        // Slight curved arc
         const mx = (x1 + x2) / 2;
         const my = (y1 + y2) / 2 - 25;
         svgHtml += `
@@ -112,7 +300,6 @@
 
     svgHtml += `</g><g class="corridor-nodes">`;
 
-    // Render Nodes
     nodes.forEach(node => {
       const x = lonToX(node.coords[1]);
       const y = latToY(node.coords[0]);
@@ -121,7 +308,6 @@
       const pm25 = data ? data.current.pm25 : node.defaultPM25;
       const isSelected = node.id === currentSelectedNodeId;
 
-      // Check for active alerts in this node
       const hasConfirmedHotspot = hotspotsMap && hotspotsMap.some(h => h.cityId === node.id && h.status === 'CONFIRMED');
       const hasWatch = hotspotsMap && hotspotsMap.some(h => h.cityId === node.id && h.status === 'WATCH');
 
@@ -139,11 +325,9 @@
            style="cursor: pointer;"
            transform="translate(${x}, ${y})">
 
-          <!-- Node: single dot; alert state shown by a thin static ring -->
           ${pulseClass ? `<circle r="13" fill="none" stroke="${nodeColor}" stroke-width="1" stroke-opacity="0.55"/>` : ''}
           <circle r="${isSelected ? 7 : 5}" fill="${nodeColor}" stroke="rgba(255,255,255,${isSelected ? 0.9 : 0.35})" stroke-width="${isSelected ? 1.5 : 1}" />
 
-          <!-- Node Label Pill -->
           <g class="node-label" transform="translate(0, ${y < 80 ? 28 : -22})">
             <rect x="-56" y="-12" width="112" height="24" rx="12"
                   fill="rgba(255,255,255,${isSelected ? 0.14 : 0.07})"
@@ -157,10 +341,8 @@
     });
 
     svgHtml += `</g></svg>`;
-
     container.innerHTML = svgHtml;
 
-    // Attach click events
     container.querySelectorAll('.node-marker').forEach(el => {
       el.addEventListener('click', () => {
         const nodeId = el.getAttribute('data-node-id');
