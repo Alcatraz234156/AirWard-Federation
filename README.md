@@ -171,10 +171,6 @@ This is a hackathon prototype. Being upfront about what is simulated:
 
 Vanilla JavaScript · SVG · Google Cloud Run · Firebase Hosting · Gemini API · Open-Meteo Air Quality API · Node.js / Express
 
-## Author
-
-Built by **Chaitanya Jha** for the *Build with AI: Code for Communities* hackathon.
-
 ## License
 
 MIT. Add a `LICENSE` file before publishing.
