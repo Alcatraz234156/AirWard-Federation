@@ -1,14 +1,4 @@
-/**
- * AirWard Federation - User Interface & Visualizations
- * Implements:
- * 1. Live BRICS Corridor Map (SVG with animated node markers, AQI color coding, and corridor lines)
- * 2. 48-Hour Forecast Chart (SVG with raw model vs federated-corrected curve, threshold lines)
- * 3. Hotspot & Forecast Spike Alert Cards
- * 4. Dual Gemini Advisory Modal (Resident plain-language + Authority regulatory action note)
- * 5. Common Alerting Protocol (CAP v1.2) JSON viewer & downloader
- * 6. Federated Learning Station (Local/Shared/Effective weights table and payload exporter)
- * 7. Interactive Toast Notifications & Status Indicators
- */
+
 
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
