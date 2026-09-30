@@ -22,21 +22,173 @@
   // State handles
   let currentSelectedNodeId = 'delhi';
   let activeAlerts = [];
-  let mapSvgElement = null;
+  let leafletMap = null;
+  let leafletTileLayer = null;
+  let leafletLayerGroup = null;
+  let currentThemeIsLight = null;
+  let themeObserverAttached = false;
 
   /**
    * Initialize and render the BRICS Corridor Map
-   * Equirectangular projection covering latitude -40° to +65°, longitude -80° to +135°
+   * Uses real geographic world tiles via Leaflet & CartoDB (dark/light themes)
    */
   function renderCorridorMap(containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // Dimensions
+    if (typeof window !== 'undefined' && window.L) {
+      renderLeafletMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+      return;
+    }
+
+    renderSvgMap(container, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+  }
+
+  function renderLeafletMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const tileUrl = isLight
+      ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+
+    if (!leafletMap) {
+      container.innerHTML = '';
+      leafletMap = window.L.map(container, {
+        center: [24, 38],
+        zoom: 2.2,
+        minZoom: 1.8,
+        maxZoom: 7,
+        zoomControl: false,
+        attributionControl: false,
+        worldCopyJump: true
+      });
+
+      window.L.control.zoom({ position: 'bottomright' }).addTo(leafletMap);
+
+      leafletTileLayer = window.L.tileLayer(tileUrl, {
+        subdomains: 'abcd',
+        maxZoom: 19
+      }).addTo(leafletMap);
+
+      currentThemeIsLight = isLight;
+      leafletLayerGroup = window.L.layerGroup().addTo(leafletMap);
+
+      if (!themeObserverAttached) {
+        themeObserverAttached = true;
+        const observer = new MutationObserver(() => {
+          const nowLight = document.documentElement.getAttribute('data-theme') === 'light';
+          if (nowLight !== currentThemeIsLight && leafletMap) {
+            currentThemeIsLight = nowLight;
+            if (leafletTileLayer) leafletMap.removeLayer(leafletTileLayer);
+            leafletTileLayer = window.L.tileLayer(
+              nowLight
+                ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+                : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+              { subdomains: 'abcd', maxZoom: 19 }
+            ).addTo(leafletMap);
+          }
+        });
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+      }
+    } else {
+      if (isLight !== currentThemeIsLight) {
+        currentThemeIsLight = isLight;
+        if (leafletTileLayer) leafletMap.removeLayer(leafletTileLayer);
+        leafletTileLayer = window.L.tileLayer(tileUrl, { subdomains: 'abcd', maxZoom: 19 }).addTo(leafletMap);
+      }
+      leafletLayerGroup.clearLayers();
+    }
+
+    const corridors = [
+      ['saopaulo', 'johannesburg'],
+      ['johannesburg', 'cairo'],
+      ['cairo', 'tehran'],
+      ['tehran', 'dubai'],
+      ['dubai', 'mumbai'],
+      ['mumbai', 'delhi'],
+      ['delhi', 'beijing'],
+      ['beijing', 'shanghai'],
+      ['beijing', 'moscow'],
+      ['moscow', 'tehran']
+    ];
+
+    const nodeMap = new Map();
+    nodes.forEach(n => nodeMap.set(n.id, n));
+
+    corridors.forEach(([fromId, toId]) => {
+      const fromNode = nodeMap.get(fromId);
+      const toNode = nodeMap.get(toId);
+      if (fromNode && toNode) {
+        window.L.polyline([
+          [fromNode.coords[0], fromNode.coords[1]],
+          [toNode.coords[0], toNode.coords[1]]
+        ], {
+          color: '#38bdf8',
+          weight: 1.5,
+          opacity: 0.45,
+          dashArray: '4, 8'
+        }).addTo(leafletLayerGroup);
+      }
+    });
+
+    nodes.forEach(node => {
+      const data = airQualityMap.get(node.id);
+      const aqi = data ? data.current.aqi : 75;
+      const pm25 = data ? data.current.pm25 : node.defaultPM25;
+      const isSelected = node.id === currentSelectedNodeId;
+
+      const AirWardModel = window.AirWardModel;
+      const aqiBand = AirWardModel ? AirWardModel.getAQIBand(aqi) : { color: '#f59e0b', label: 'Moderate' };
+      const nodeColor = aqiBand.color;
+      const hasConfirmedHotspot = hotspotsMap && hotspotsMap.some(h => h.cityId === node.id && h.status === 'CONFIRMED');
+
+      const markerHtml = `
+        <div class="custom-node-marker ${isSelected ? 'is-selected' : ''}" data-city="${node.id}">
+          <div class="node-pulse-point" style="color: ${nodeColor};">
+            <div class="node-core" style="background: ${nodeColor};"></div>
+            <div class="node-ring"></div>
+            ${hasConfirmedHotspot ? '<div class="node-ring-hazard"></div>' : ''}
+          </div>
+          <div class="node-tag-pill ${isSelected ? 'node-tag-active' : ''}">
+            <span class="node-flag">${node.flag}</span>
+            <span class="node-name">${node.name}</span>
+            <span class="node-aqi" style="color:${nodeColor};">${aqi}</span>
+          </div>
+        </div>
+      `;
+
+      const icon = window.L.divIcon({
+        className: 'leaflet-custom-div-icon',
+        html: markerHtml,
+        iconSize: [130, 36],
+        iconAnchor: [12, 12]
+      });
+
+      const m = window.L.marker([node.coords[0], node.coords[1]], { icon }).addTo(leafletLayerGroup);
+
+      m.bindTooltip(`
+        <div style="font-size:0.75rem; line-height:1.4;">
+          <strong>${node.flag} ${node.name}</strong> <span style="opacity:0.7;">(${node.country})</span><br/>
+          <span style="color:${nodeColor}; font-weight:700;">AQI ${aqi} · ${aqiBand.label}</span><br/>
+          <span style="opacity:0.8;">PM2.5: ${pm25.toFixed(1)} µg/m³</span>
+        </div>
+      `, { direction: 'top', offset: [0, -10] });
+
+      m.on('click', () => {
+        currentSelectedNodeId = node.id;
+        if (onNodeSelect) onNodeSelect(node.id);
+        renderLeafletMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+        leafletMap.panTo([node.coords[0], node.coords[1]], { animate: true, duration: 0.6 });
+      });
+    });
+
+    setTimeout(() => {
+      if (leafletMap) leafletMap.invalidateSize();
+    }, 100);
+  }
+
+  function renderSvgMap(container, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
     const width = 1000;
     const height = 520;
-
-    // Bounding box for BRICS nodes
     const minLon = -75;
     const maxLon = 130;
     const minLat = -35;
@@ -47,11 +199,9 @@
     }
 
     function latToY(lat) {
-      // Invert Y for SVG coordinates
       return height - (((lat - minLat) / (maxLat - minLat)) * (height - 100) + 50);
     }
 
-    // Generate corridor connecting lines between BRICS economic partners
     const corridors = [
       ['saopaulo', 'johannesburg'],
       ['johannesburg', 'cairo'],
@@ -67,34 +217,9 @@
 
     let svgHtml = `
       <svg viewBox="0 0 ${width} ${height}" class="corridor-svg" preserveAspectRatio="xMidYMid meet">
-        <defs>
-          <radialGradient id="nodeGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.6"/>
-            <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
-          </radialGradient>
-          <filter id="glowEffect" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feComposite in="SourceGraphic" in2="blur" operator="over" />
-          </filter>
-        </defs>
-
-        <!-- World map continent stylized land masses -->
-        <g class="map-continents" opacity="0.10">
-          <!-- South America -->
-          <path d="M 120,310 C 135,270 170,290 190,320 C 210,360 200,420 180,450 C 160,470 145,430 135,390 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
-          <!-- Africa -->
-          <path d="M 450,220 C 510,210 560,250 560,300 C 560,360 520,440 480,460 C 450,440 440,360 430,300 C 420,250 440,230 450,220 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
-          <!-- Eurasia / Asia -->
-          <path d="M 460,90 C 540,70 660,75 800,85 C 920,95 950,160 920,240 C 860,260 760,290 690,260 C 650,290 600,260 560,220 C 510,180 480,140 460,90 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
-          <!-- India sub-peninsula -->
-          <path d="M 680,220 C 720,230 750,260 740,310 C 730,340 705,330 695,290 C 685,260 675,230 680,220 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
-        </g>
-
-        <!-- Corridor Trade & Atmospheric Flow Paths -->
         <g class="corridor-lines" opacity="0.45">
     `;
 
-    // Map of nodes for quick coordinate lookup
     const nodeMap = new Map();
     nodes.forEach(n => nodeMap.set(n.id, n));
 
@@ -106,7 +231,6 @@
         const y1 = latToY(fromNode.coords[0]);
         const x2 = lonToX(toNode.coords[1]);
         const y2 = latToY(toNode.coords[0]);
-        // Slight curved arc
         const mx = (x1 + x2) / 2;
         const my = (y1 + y2) / 2 - 25;
         svgHtml += `
@@ -122,38 +246,23 @@
 
     svgHtml += `</g><g class="corridor-nodes">`;
 
-    // Render Nodes
     nodes.forEach(node => {
       const x = lonToX(node.coords[1]);
       const y = latToY(node.coords[0]);
       const data = airQualityMap.get(node.id);
       const aqi = data ? data.current.aqi : 75;
-      const pm25 = data ? data.current.pm25 : node.defaultPM25;
       const isSelected = node.id === currentSelectedNodeId;
-
-      // Check for active alerts in this node
-      const hasConfirmedHotspot = hotspotsMap && hotspotsMap.some(h => h.cityId === node.id && h.status === 'CONFIRMED');
-      const hasWatch = hotspotsMap && hotspotsMap.some(h => h.cityId === node.id && h.status === 'WATCH');
 
       const AirWardModel = window.AirWardModel;
       const aqiBand = AirWardModel ? AirWardModel.getAQIBand(aqi) : { color: '#f59e0b', label: 'Moderate' };
       const nodeColor = aqiBand.color;
-
-      const pulseClass = hasConfirmedHotspot
-        ? 'pulse-circle pulse-hazard'
-        : (hasWatch ? 'pulse-circle pulse-warning' : (aqi >= 151 ? 'pulse-circle pulse-unhealthy' : ''));
 
       svgHtml += `
         <g class="node-marker ${isSelected ? 'is-selected' : ''}"
            data-node-id="${node.id}"
            style="cursor: pointer;"
            transform="translate(${x}, ${y})">
-
-          <!-- Node: single dot; alert state shown by a thin static ring -->
-          ${pulseClass ? `<circle r="13" fill="none" stroke="${nodeColor}" stroke-width="1" stroke-opacity="0.55"/>` : ''}
           <circle r="${isSelected ? 7 : 5}" fill="${nodeColor}" stroke="rgba(255,255,255,${isSelected ? 0.9 : 0.35})" stroke-width="${isSelected ? 1.5 : 1}" />
-
-          <!-- Node Label Pill -->
           <g class="node-label" transform="translate(0, ${y < 80 ? 28 : -22})">
             <rect x="-56" y="-12" width="112" height="24" rx="12"
                   fill="rgba(255,255,255,${isSelected ? 0.14 : 0.07})"
@@ -167,10 +276,8 @@
     });
 
     svgHtml += `</g></svg>`;
-
     container.innerHTML = svgHtml;
 
-    // Attach click events
     container.querySelectorAll('.node-marker').forEach(el => {
       el.addEventListener('click', () => {
         const nodeId = el.getAttribute('data-node-id');
