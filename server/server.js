@@ -82,19 +82,23 @@ const parentDir = path.join(__dirname, '..');
 
 if (fs.existsSync(path.join(publicDir, 'index.html'))) {
   app.use(express.static(publicDir));
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(publicDir, 'index.html'));
+  });
 } else if (fs.existsSync(path.join(parentDir, 'index.html')) && fs.existsSync(path.join(parentDir, 'styles.css'))) {
   app.use(express.static(parentDir));
-}
-
-app.get('/', (req, res) => {
-  // If static index.html exists, express.static handled it.
-  // Otherwise return API service status JSON
-  res.json({
-    service: 'AirWard Federation API',
-    status: 'operational',
-    docs: 'Endpoints: POST /api/classify, POST /api/advisory, GET /health'
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(parentDir, 'index.html'));
   });
-});
+} else {
+  app.get('/', (req, res) => {
+    res.json({
+      service: 'AirWard Federation API',
+      status: 'operational',
+      docs: 'Endpoints: POST /api/classify, POST /api/advisory, GET /health'
+    });
+  });
+}
 
 /**
  * Helper to call Gemini REST API

@@ -12,9 +12,10 @@ ENV PORT=8080
 COPY package*.json ./
 RUN npm install --omit=dev
 
-# Copy application source and prompt files
+# Copy application source, prompts, and static frontend assets
 COPY server.js ./
 COPY prompts/ ./prompts/
+COPY public/ ./public/
 
 # Expose standard Cloud Run port
 EXPOSE 8080
