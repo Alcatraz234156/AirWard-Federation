@@ -15,3 +15,6 @@ Thumbs.db
 
 # Firebase cache
 .firebase/
+
+# Archives
+*.zip

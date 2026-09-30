@@ -227,7 +227,7 @@
 
     // 7. Render Views
     renderSelectedNodePanel();
-    AirWardUI.renderCorridorMap('corridorMapContainer', state.nodes, state.airQualityMap, state.hotspots, handleNodeSelect);
+    AirWardUI.renderCorridorMap('corridorMapContainer', state.nodes, state.airQualityMap, state.hotspots, handleNodeSelect, state.selectedNodeId);
     renderForecastChartForSelectedNode();
     AirWardUI.renderAlertFeed('alertFeedContainer', state.hotspots, state.spikesMap, state.nodes, handleOpenAdvisory, handleOpenCAP);
     AirWardUI.renderFederationStation('federationStationContainer', state.nodes, state.nodeReportStats, state.sharedFactor, handleCopyPayload, handleSimulateExchange);
@@ -255,7 +255,7 @@
     if (selectEl) selectEl.value = nodeId;
 
     renderSelectedNodePanel();
-    AirWardUI.renderCorridorMap('corridorMapContainer', state.nodes, state.airQualityMap, state.hotspots, handleNodeSelect);
+    AirWardUI.renderCorridorMap('corridorMapContainer', state.nodes, state.airQualityMap, state.hotspots, handleNodeSelect, state.selectedNodeId);
     renderForecastChartForSelectedNode();
   }
 
@@ -748,7 +748,7 @@
     if (tabName === 'forecast') {
       renderForecastChartForSelectedNode();
     } else if (tabName === 'corridor') {
-      AirWardUI.renderCorridorMap('corridorMapContainer', state.nodes, state.airQualityMap, state.hotspots, handleNodeSelect);
+      AirWardUI.renderCorridorMap('corridorMapContainer', state.nodes, state.airQualityMap, state.hotspots, handleNodeSelect, state.selectedNodeId);
     }
   }
 

@@ -32,26 +32,58 @@
    * Displays REAL photographic satellite imagery of planet Earth (NASA / Esri World Imagery)
    * with geographic boundary labels, atmospheric flow arcs, and glowing AQI nodes.
    */
-  function renderCorridorMap(containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
+  function renderCorridorMap(containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect, selectedNodeId) {
     const container = document.getElementById(containerId);
     if (!container) return;
+
+    if (selectedNodeId) {
+      currentSelectedNodeId = selectedNodeId;
+    }
 
     if (typeof window !== 'undefined' && window.L) {
       renderRealSatelliteMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect);
       return;
     }
 
-    renderSvgMap(container, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+    // If Leaflet is still downloading, retry every 80ms for up to 3 seconds
+    if (!window._leafletWaitTimer) {
+      let attempts = 0;
+      window._leafletWaitTimer = setInterval(() => {
+        attempts++;
+        if (typeof window !== 'undefined' && window.L) {
+          clearInterval(window._leafletWaitTimer);
+          window._leafletWaitTimer = null;
+          renderRealSatelliteMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+        } else if (attempts > 35) {
+          clearInterval(window._leafletWaitTimer);
+          window._leafletWaitTimer = null;
+          renderSvgMap(container, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+        }
+      }, 80);
+    }
   }
 
   function renderRealSatelliteMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
+    // Guarantee non-zero height on container
+    if (!container.style.height || container.clientHeight === 0) {
+      container.style.height = '520px';
+      container.style.minHeight = '520px';
+      container.style.display = 'block';
+    }
+
     if (!leafletMap) {
+      if (container._leaflet_id) {
+        container._leaflet_id = null;
+      }
       container.innerHTML = '';
+
       leafletMap = window.L.map(container, {
-        center: [22, 38],
-        zoom: 2.3,
-        minZoom: 1.8,
-        maxZoom: 17,
+        center: [22, 42],
+        zoom: 2.2,
+        minZoom: 1.5,
+        maxZoom: 18,
+        zoomSnap: 0.2,
+        zoomDelta: 0.5,
         zoomControl: false,
         attributionControl: false,
         worldCopyJump: true
@@ -87,6 +119,16 @@
       window.L.control.layers(baseMaps, null, { position: 'topright' }).addTo(leafletMap);
 
       leafletLayerGroup = window.L.layerGroup().addTo(leafletMap);
+
+      // Add legend badge
+      const legend = document.createElement('div');
+      legend.className = 'map-corridor-legend';
+      legend.innerHTML = '<span>🛰️ <strong>Photographic Earth Satellite</strong> · Live BRICS Corridor</span>';
+      container.appendChild(legend);
+
+      window.addEventListener('resize', () => {
+        if (leafletMap) leafletMap.invalidateSize();
+      });
     } else {
       leafletLayerGroup.clearLayers();
     }
@@ -152,7 +194,7 @@
       const icon = window.L.divIcon({
         className: 'leaflet-custom-div-icon',
         html: markerHtml,
-        iconSize: [130, 36],
+        iconSize: [120, 36],
         iconAnchor: [12, 12]
       });
 
@@ -174,9 +216,9 @@
       });
     });
 
-    setTimeout(() => {
-      if (leafletMap) leafletMap.invalidateSize();
-    }, 100);
+    setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 80);
+    setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 300);
+    setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 700);
   }
 
   function renderSvgMap(container, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
@@ -210,6 +252,25 @@
 
     let svgHtml = `
       <svg viewBox="0 0 ${width} ${height}" class="corridor-svg" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <radialGradient id="nodeGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.6"/>
+            <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+          </radialGradient>
+          <filter id="glowEffect" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
+        </defs>
+
+        <!-- World map continent stylized land masses -->
+        <g class="map-continents" opacity="0.10">
+          <path d="M 120,310 C 135,270 170,290 190,320 C 210,360 200,420 180,450 C 160,470 145,430 135,390 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
+          <path d="M 450,220 C 510,210 560,250 560,300 C 560,360 520,440 480,460 C 450,440 440,360 430,300 C 420,250 440,230 450,220 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
+          <path d="M 460,90 C 540,70 660,75 800,85 C 920,95 950,160 920,240 C 860,260 760,290 690,260 C 650,290 600,260 560,220 C 510,180 480,140 460,90 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
+          <path d="M 680,220 C 720,230 750,260 740,310 C 730,340 705,330 695,290 C 685,260 675,230 680,220 Z" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
+        </g>
+
         <g class="corridor-lines" opacity="0.45">
     `;
 
@@ -244,18 +305,29 @@
       const y = latToY(node.coords[0]);
       const data = airQualityMap.get(node.id);
       const aqi = data ? data.current.aqi : 75;
+      const pm25 = data ? data.current.pm25 : node.defaultPM25;
       const isSelected = node.id === currentSelectedNodeId;
+
+      const hasConfirmedHotspot = hotspotsMap && hotspotsMap.some(h => h.cityId === node.id && h.status === 'CONFIRMED');
+      const hasWatch = hotspotsMap && hotspotsMap.some(h => h.cityId === node.id && h.status === 'WATCH');
 
       const AirWardModel = window.AirWardModel;
       const aqiBand = AirWardModel ? AirWardModel.getAQIBand(aqi) : { color: '#f59e0b', label: 'Moderate' };
       const nodeColor = aqiBand.color;
+
+      const pulseClass = hasConfirmedHotspot
+        ? 'pulse-circle pulse-hazard'
+        : (hasWatch ? 'pulse-circle pulse-warning' : (aqi >= 151 ? 'pulse-circle pulse-unhealthy' : ''));
 
       svgHtml += `
         <g class="node-marker ${isSelected ? 'is-selected' : ''}"
            data-node-id="${node.id}"
            style="cursor: pointer;"
            transform="translate(${x}, ${y})">
+
+          ${pulseClass ? `<circle r="13" fill="none" stroke="${nodeColor}" stroke-width="1" stroke-opacity="0.55"/>` : ''}
           <circle r="${isSelected ? 7 : 5}" fill="${nodeColor}" stroke="rgba(255,255,255,${isSelected ? 0.9 : 0.35})" stroke-width="${isSelected ? 1.5 : 1}" />
+
           <g class="node-label" transform="translate(0, ${y < 80 ? 28 : -22})">
             <rect x="-56" y="-12" width="112" height="24" rx="12"
                   fill="rgba(255,255,255,${isSelected ? 0.14 : 0.07})"
