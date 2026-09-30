@@ -45,7 +45,7 @@ Where citizen readings disagree with the model, the platform flags a **hidden ho
 
 ```mermaid
 flowchart LR
-  U[Citizen / Browser<br/>static site on Netlify] -->|POST /api/classify<br/>photo| R
+  U[Citizen / Browser<br/>static site on Firebase Hosting] -->|POST /api/classify<br/>photo| R
   U -->|POST /api/advisory<br/>alert facts| R
   U -->|48h forecast| M[Open-Meteo<br/>CAMS satellite-assimilated model]
   R[Cloud Run<br/>Node + Express<br/>holds API key, CORS, rate limit] -->|prompts/*.md| G[Gemini API<br/>multimodal]
@@ -113,13 +113,27 @@ Then set `API_URL = 'http://localhost:8080'` in `js/config.js`.
 
 ```bash
 cd server
-gcloud run deploy airward-api --source . --region asia-south1 --allow-unauthenticated \
-  --set-env-vars GEMINI_API_KEY=YOUR_KEY,GEMINI_MODEL=gemini-3.6-flash,ALLOWED_ORIGINS=https://YOUR-SITE.netlify.app
+gcloud run deploy airward-api --source . --region us-central1 --allow-unauthenticated \
+  --set-env-vars GEMINI_API_KEY=YOUR_KEY,GEMINI_MODEL=gemini-3.8-flash,ALLOWED_ORIGINS=https://YOUR-PROJECT.web.app
 ```
 
 For production, store the key in Secret Manager instead of a plain environment variable.
 
-**Frontend on Netlify:** drag the project folder into Netlify (or connect the repo), after pasting the Cloud Run URL into `API_URL` in `js/config.js`.
+**Frontend on Firebase Hosting** (same Google Cloud project): paste the Cloud Run URL into `API_URL` in `js/config.js`, then from the project root:
+
+```bash
+npm install -g firebase-tools
+firebase login
+firebase use --add              # pick your project
+firebase deploy --only hosting  # https://YOUR-PROJECT.web.app
+```
+
+`firebase.json` already excludes `server/`, `tests/` and dotfiles such as `.env` from the upload. Then allow the new origin on the API:
+
+```bash
+gcloud run services update airward-api --region us-central1 \
+  --update-env-vars ALLOWED_ORIGINS=https://YOUR-PROJECT.web.app
+```
 
 ### 4. Run the tests
 
@@ -134,7 +148,7 @@ Covers the AQI conversion, correction factors, hotspot rules, and the federated 
 | Variable | Where | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | server | Gemini API key (never commit it) |
-| `GEMINI_MODEL` | server | Model ID, default `gemini-3.6-flash` |
+| `GEMINI_MODEL` | server | Model ID, default `gemini-3.8-flash` |
 | `ALLOWED_ORIGINS` | server | Comma-separated frontend origins allowed by CORS |
 | `API_URL` | `js/config.js` | Cloud Run service URL |
 
@@ -155,7 +169,11 @@ This is a hackathon prototype. Being upfront about what is simulated:
 
 ## Built with
 
-Vanilla JavaScript · SVG · Google Cloud Run · Gemini API · Open-Meteo Air Quality API · Node.js / Express · Netlify
+Vanilla JavaScript · SVG · Google Cloud Run · Firebase Hosting · Gemini API · Open-Meteo Air Quality API · Node.js / Express
+
+## Author
+
+Built by **Chaitanya Jha** for the *Build with AI: Code for Communities* hackathon.
 
 ## License
 
