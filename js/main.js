@@ -450,6 +450,20 @@
       });
     });
 
+    // Gemini rejects SVG and needs genuine base64, so rasterize the sample illustration to a PNG first.
+    const rasterizeSample = (svgUrl) => new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = 600; c.height = 400;
+        c.getContext('2d').drawImage(img, 0, 0, 600, 400);
+        const dataUrl = c.toDataURL('image/png');
+        resolve({ dataUrl, base64: dataUrl.split(',')[1] });
+      };
+      img.onerror = reject;
+      img.src = svgUrl;
+    });
+
     // Sample Photo Selection Buttons
     document.querySelectorAll('[data-sample-photo]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -470,6 +484,13 @@
           previewImg.src = sample.placeholderUrl;
           previewBox.classList.remove('hidden');
           previewBox.setAttribute('data-current-sample', sampleKey);
+          previewBox.removeAttribute('data-base64');
+          previewBox.removeAttribute('data-mime');
+          rasterizeSample(sample.placeholderUrl).then(r => {
+            previewBox.setAttribute('data-base64', r.base64);
+            previewBox.setAttribute('data-mime', 'image/png');
+            previewImg.src = r.dataUrl;
+          }).catch(() => {});
         }
 
         AirWardUI.showToast(`Sample photo selected: ${sample.name}`, 'info');
@@ -531,7 +552,7 @@
           city: cityId,
           reading: reading,
           hintSource: hintSource,
-          image: base64 || (sampleKey ? SAMPLE_PHOTOS[sampleKey].placeholderUrl.split(',')[1] : ''),
+          image: base64 || '',
           mimeType: mime
         };
 

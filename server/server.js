@@ -87,56 +87,50 @@ app.get('/', (req, res) => {
 /**
  * Helper to call Gemini REST API
  */
+const FALLBACK_MODELS = ['gemini-2.5-flash']; // used only if the primary model stays unavailable
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
 async function callGemini(contents, systemInstruction = '') {
   if (!GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY is not configured on server');
   }
 
-  // Model resolution: fallback to 2.5-flash or 1.5-flash if 3.8-flash alias is pending in preview
-  const modelToUse = GEMINI_MODEL;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent?key=${GEMINI_API_KEY}`;
-
   const body = {
     contents: contents,
-    generationConfig: {
-      temperature: 0.2,
-      responseMimeType: 'application/json'
-    }
+    generationConfig: { temperature: 0.2, responseMimeType: 'application/json' }
   };
-
   if (systemInstruction) {
-    body.systemInstruction = {
-      parts: [{ text: systemInstruction }]
-    };
+    body.systemInstruction = { parts: [{ text: systemInstruction }] };
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    // If the experimental model ID isn't found, try standard gemini-2.5-flash
-    if (response.status === 404 && modelToUse !== 'gemini-2.5-flash') {
-      console.warn(`[Gemini] ${modelToUse} returned 404. Falling back to gemini-2.5-flash.`);
-      const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-      const fallbackRes = await fetch(fallbackUrl, {
+  // Try the primary model first. Temporary overload (429/500/503/504) is retried with a short
+  // backoff, then the next model is tried. Bad requests (400/401/403) fail immediately.
+  const models = [GEMINI_MODEL, ...FALLBACK_MODELS.filter(m => m !== GEMINI_MODEL)];
+  let lastErr;
+  for (const model of models) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      if (fallbackRes.ok) {
-        const fbJson = await fallbackRes.json();
-        return parseGeminiResponseText(fbJson);
+      if (response.ok) {
+        if (model !== GEMINI_MODEL) console.warn(`[Gemini] Answered by fallback model ${model}.`);
+        return parseGeminiResponseText(await response.json());
       }
+      const errorText = await response.text();
+      lastErr = new Error(`Gemini API returned ${response.status}: ${errorText}`);
+      if ([429, 500, 503, 504].includes(response.status)) {
+        console.warn(`[Gemini] ${model} busy (${response.status}), retry ${attempt + 1}/3`);
+        await sleep(600 * 2 ** attempt + Math.random() * 300);
+        continue;
+      }
+      if (response.status === 404) break; // unknown model ID: move to the next model
+      throw lastErr;
     }
-    throw new Error(`Gemini API returned ${response.status}: ${errorText}`);
   }
-
-  const json = await response.json();
-  return parseGeminiResponseText(json);
+  throw lastErr;
 }
 
 function parseGeminiResponseText(json) {
@@ -174,12 +168,18 @@ app.post('/api/classify', async (req, res) => {
     ];
 
     if (image) {
-      parts.push({
-        inlineData: {
-          mimeType: mimeType || 'image/jpeg',
-          data: image
-        }
-      });
+      // Accept either raw base64 or a full data URL, and reject anything Gemini cannot decode.
+      let data = String(image);
+      let mime = mimeType || 'image/jpeg';
+      const dataUrl = /^data:([\w/+.-]+);base64,(.*)$/s.exec(data);
+      if (dataUrl) { mime = dataUrl[1]; data = dataUrl[2]; }
+      if (!['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'].includes(mime)) {
+        throw new Error(`Unsupported image type "${mime}". Use PNG, JPEG or WebP.`);
+      }
+      if (!/^[A-Za-z0-9+/=\s]+$/.test(data)) {
+        throw new Error('Image data is not valid base64.');
+      }
+      parts.push({ inlineData: { mimeType: mime, data: data.replace(/\s/g, '') } });
     }
 
     const contents = [{ role: 'user', parts: parts }];
