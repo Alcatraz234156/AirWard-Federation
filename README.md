@@ -173,4 +173,4 @@ Vanilla JavaScript · SVG · Google Cloud Run · Firebase Hosting · Gemini API 
 
 ## License
 
-MIT. Add a `LICENSE` file before publishing.
+MIT License
