@@ -23,40 +23,35 @@
   let currentSelectedNodeId = 'delhi';
   let activeAlerts = [];
   let leafletMap = null;
-  let leafletTileLayer = null;
+  let satelliteLayerGroup = null;
+  let darkTilesLayer = null;
   let leafletLayerGroup = null;
-  let currentThemeIsLight = null;
-  let themeObserverAttached = false;
 
   /**
    * Initialize and render the BRICS Corridor Map
-   * Uses real geographic world tiles via Leaflet & CartoDB (dark/light themes)
+   * Displays REAL photographic satellite imagery of planet Earth (NASA / Esri World Imagery)
+   * with geographic boundary labels, atmospheric flow arcs, and glowing AQI nodes.
    */
   function renderCorridorMap(containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
     if (typeof window !== 'undefined' && window.L) {
-      renderLeafletMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+      renderRealSatelliteMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect);
       return;
     }
 
     renderSvgMap(container, nodes, airQualityMap, hotspotsMap, onNodeSelect);
   }
 
-  function renderLeafletMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
-    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    const tileUrl = isLight
-      ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-
+  function renderRealSatelliteMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect) {
     if (!leafletMap) {
       container.innerHTML = '';
       leafletMap = window.L.map(container, {
-        center: [24, 38],
-        zoom: 2.2,
+        center: [22, 38],
+        zoom: 2.3,
         minZoom: 1.8,
-        maxZoom: 7,
+        maxZoom: 17,
         zoomControl: false,
         attributionControl: false,
         worldCopyJump: true
@@ -64,37 +59,35 @@
 
       window.L.control.zoom({ position: 'bottomright' }).addTo(leafletMap);
 
-      leafletTileLayer = window.L.tileLayer(tileUrl, {
-        subdomains: 'abcd',
-        maxZoom: 19
-      }).addTo(leafletMap);
+      // Real Satellite Imagery Tiles (photographic Earth from space)
+      const satImagery = window.L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        { maxZoom: 18 }
+      );
 
-      currentThemeIsLight = isLight;
+      // Country Borders & Regional Labels Overlay
+      const satLabels = window.L.tileLayer(
+        'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+        { maxZoom: 18, opacity: 0.85 }
+      );
+
+      satelliteLayerGroup = window.L.layerGroup([satImagery, satLabels]).addTo(leafletMap);
+
+      // Alternative Dark Radar Vector Map (CartoDB Dark Matter)
+      darkTilesLayer = window.L.tileLayer(
+        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        { subdomains: 'abcd', maxZoom: 19 }
+      );
+
+      // Add map style switcher on top-right of map
+      const baseMaps = {
+        '🛰️ Real Satellite Imagery': satelliteLayerGroup,
+        '🌙 Dark Radar Vector': darkTilesLayer
+      };
+      window.L.control.layers(baseMaps, null, { position: 'topright' }).addTo(leafletMap);
+
       leafletLayerGroup = window.L.layerGroup().addTo(leafletMap);
-
-      if (!themeObserverAttached) {
-        themeObserverAttached = true;
-        const observer = new MutationObserver(() => {
-          const nowLight = document.documentElement.getAttribute('data-theme') === 'light';
-          if (nowLight !== currentThemeIsLight && leafletMap) {
-            currentThemeIsLight = nowLight;
-            if (leafletTileLayer) leafletMap.removeLayer(leafletTileLayer);
-            leafletTileLayer = window.L.tileLayer(
-              nowLight
-                ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
-                : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-              { subdomains: 'abcd', maxZoom: 19 }
-            ).addTo(leafletMap);
-          }
-        });
-        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-      }
     } else {
-      if (isLight !== currentThemeIsLight) {
-        currentThemeIsLight = isLight;
-        if (leafletTileLayer) leafletMap.removeLayer(leafletTileLayer);
-        leafletTileLayer = window.L.tileLayer(tileUrl, { subdomains: 'abcd', maxZoom: 19 }).addTo(leafletMap);
-      }
       leafletLayerGroup.clearLayers();
     }
 
@@ -123,9 +116,9 @@
           [toNode.coords[0], toNode.coords[1]]
         ], {
           color: '#38bdf8',
-          weight: 1.5,
-          opacity: 0.45,
-          dashArray: '4, 8'
+          weight: 2,
+          opacity: 0.65,
+          dashArray: '6, 8'
         }).addTo(leafletLayerGroup);
       }
     });
@@ -151,7 +144,7 @@
           <div class="node-tag-pill ${isSelected ? 'node-tag-active' : ''}">
             <span class="node-flag">${node.flag}</span>
             <span class="node-name">${node.name}</span>
-            <span class="node-aqi" style="color:${nodeColor};">${aqi}</span>
+            <span class="node-aqi" style="color:${nodeColor}; font-weight: 700;">${aqi}</span>
           </div>
         </div>
       `;
@@ -176,7 +169,7 @@
       m.on('click', () => {
         currentSelectedNodeId = node.id;
         if (onNodeSelect) onNodeSelect(node.id);
-        renderLeafletMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect);
+        renderRealSatelliteMap(container, containerId, nodes, airQualityMap, hotspotsMap, onNodeSelect);
         leafletMap.panTo([node.coords[0], node.coords[1]], { animate: true, duration: 0.6 });
       });
     });
