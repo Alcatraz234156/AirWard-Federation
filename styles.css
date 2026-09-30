@@ -1418,7 +1418,7 @@ body {
 
 .modal-title { font-size: 1.05rem; font-weight: 700; }
 
-.modal-header .modal-close {
+.modal-close {
   background: transparent;
   border: none;
   color: var(--text-secondary);
@@ -1434,23 +1434,9 @@ body {
   transition: all 0.2s ease;
 }
 
-.modal-header .modal-close:hover {
-  background: rgba(239, 68, 68, 0.15);
+.modal-close:hover {
+  background: rgba(239,68,68,0.15);
   color: var(--accent-red);
-}
-
-.btn.modal-close {
-  width: auto !important;
-  height: auto !important;
-  min-width: 90px;
-  padding: 0.55rem 1.25rem !important;
-  font-size: 0.82rem !important;
-  border-radius: 10px;
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  white-space: nowrap;
 }
 
 .modal-body { padding: 1.25rem; overflow-y: auto; }
